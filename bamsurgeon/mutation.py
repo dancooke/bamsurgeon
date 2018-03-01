@@ -66,51 +66,97 @@ def makeins(read, start, ins, debug=False):
         print "DEBUG: INS: newseq:  ", newseq
     return newseq
 
+def is_missing(allele):
+    return allele[-1] is None or '*' in allele[-1]
 
-def makedel(read, chrom, start, end, ref, debug=False):
-    assert len(read.seq) > end-start-2
+
+def make_haplotype(start, end, ref_seq, variants):
+    ref_idx = 0
+    result = ""
+    for variant in variants:
+        variant_idx = variant.pos - start - 1
+        next_ref_idx = max(variant_idx, ref_idx)
+        result += ref_seq[ref_idx : next_ref_idx] # ref sub-sequence before variant
+        ref_idx = next_ref_idx
+        alt = variant.alts[0]
+        if not is_missing(alt):
+            result += alt
+            ref_idx += len(variant.ref)
+    result += ref_seq[ref_idx:]
+    required_len = end - start
+    if len(result) >= required_len:
+        return result[:required_len]
+    else:
+        return result
+
+
+def fetch_consensus(chrom, start, end, ref, vcf, debug=False):
+    ref_seq = ref.fetch(chrom, start, end)
+    if debug:
+        print "DEBUG: PAD: start:", start
+        print "DEBUG: PAD: end:", end
+        print "DEBUG: ref_seq: end:", ref_seq
+    if vcf is None:
+        return ref_seq
+    else:
+        variants = vcf.fetch(chrom, start, end)
+        required_len = end - start
+        result = make_haplotype(start, end, ref_seq, variants)
+        while len(result) < required_len:
+            start, end = end, end + (required_len - len(result))
+            result += make_haplotype(start, end, ref_seq, variants)
+        return result
+
+
+def makedel(read, chrom, start, end, ref, vcf=None, debug=False):
+    del_len = end - start
+    
+    assert len(read.seq) > del_len - 2
     
     if debug:
         print "DEBUG: DEL: read.pos:", read.pos
         print "DEBUG: DEL: start:   ", start
         print "DEBUG: DEL: ins:     ", end
+        print "DEBUG: DEL: del_len:     ", del_len
         print "DEBUG: DEL: cigar:     ", read.cigarstring
         print "DEBUG: DEL: orig seq:     ", read.seq
-
+    
     orig_len = len(read.seq)
-    #orig_end = read.pos + orig_len
     start_in_read = start - read.pos + read.qstart
     end_in_read = end - read.pos + read.qstart
-
+    
     if debug:
         print "DEBUG: DEL: start_in_read:", start_in_read
         print "DEBUG: DEL: end_in_read:  ", end_in_read
-
+    
     if start_in_read < 0: # deletion begins to the left of the read
         if debug:
             print "DEBUG: DEL: del begins to left of read." 
-
+        
         assert end_in_read < orig_len
         right = read.seq[end_in_read:]
-        left  = ref.fetch(chrom, start-(len(read.seq) - len(right)), start)
-
+        pad_start, pad_end = start - (len(read.seq) - len(right)), start
+        left  = fetch_consensus(chrom, pad_start, pad_end, ref, vcf, debug)
+    
     elif end_in_read > orig_len: # deletion ends to the right of the read
         if debug:
             print "DEBUG: DEL: del ends to right of read."
 
         assert start_in_read > 0
         left  = read.seq[:start_in_read]
-        right = ref.fetch(chrom, end, end+(len(read.seq) - len(left)))
-
+        pad_start, pad_end = end, end + (len(read.seq) - len(left))
+        right = fetch_consensus(chrom, pad_start, pad_end, ref, vcf, debug)
+    
     else:
         if debug:
             print "DEBUG: DEL: del starts and ends within read." 
-
+        
         assert end_in_read <= orig_len and start_in_read >= 0 # deletion contained within the read
         left  = read.seq[:start_in_read]
         right = read.seq[end_in_read:]
-        right += ref.fetch(chrom, read.pos+len(read.seq), read.pos+len(read.seq)+(len(read.seq)-len(left)-len(right)))
-
+        pad_start, pad_end = read.reference_end, read.reference_end + del_len
+        right += fetch_consensus(chrom, pad_start, pad_end, ref, vcf, debug)
+    
     if debug:
         print "DEBUG: DEL:  newseq:     ", left + right
     return left + right
@@ -127,7 +173,7 @@ def find_mate(read, bam):
     return None
 
 
-def mutate(args, log, bamfile, bammate, chrom, mutstart, mutend, mutpos_list, avoid=None, mutid_list=None, is_snv=False, mutbase_list=None, is_insertion=False, is_deletion=False, ins_seq=None, reffile=None, indel_start=None, indel_end=None):
+def mutate(args, log, bamfile, bammate, chrom, mutstart, mutend, mutpos_list, avoid=None, mutid_list=None, is_snv=False, mutbase_list=None, is_insertion=False, is_deletion=False, ins_seq=None, reffile=None, indel_start=None, indel_end=None, vcffile=None):
     assert mutend > mutstart, "mutation start must occur before mutation end: " + mutid
 
     hasSNP = False
@@ -179,7 +225,7 @@ def mutate(args, log, bamfile, bammate, chrom, mutstart, mutend, mutpos_list, av
                                 mutreads[extqname] = makeins(pread.alignment, indel_start, ins_seq)
 
                             if is_deletion:
-                                mutreads[extqname] = makedel(pread.alignment, chrom, indel_start, indel_end, reffile)
+                                mutreads[extqname] = makedel(pread.alignment, chrom, indel_start, indel_end, reffile, vcffile)
 
                             mate = None
                             if not args.single:
@@ -189,7 +235,7 @@ def mutate(args, log, bamfile, bammate, chrom, mutstart, mutend, mutpos_list, av
                                     raise ValueError('cannot find mate reference chrom for read %s, is this a single-ended BAM?' % pread.alignment.qname)
 
                                 if mate is None:
-                                    print "WARN\t" + now() + "\t" + mutid + "\twarning: no mate for", pread.alignment.qname
+                                    # print "WARN\t" + now() + "\t" + mutid + "\twarning: no mate for", pread.alignment.qname
                                     if args.requirepaired:
                                         print "WARN\t" + now() + "\t" + mutid + "\tskipped mutation due to --requirepaired"
                                         return True, False, {}, {}, {}
@@ -225,7 +271,8 @@ def mutate(args, log, bamfile, bammate, chrom, mutstart, mutend, mutpos_list, av
                 sys.stderr.write("WARN\t" + now() + "\t" + region + "\tcould not pileup for region: " + chrom + ":" + str(pcol.pos) + "\n")
                 if not args.ignorepileup:
                     hasSNP = True
-
-    assert maxfrac is not None, "Error: could not pile up over region: %s" % region
+    
+    if not args.ignorepileup:
+        assert maxfrac is not None, "Error: could not pile up over region: %s" % region
 
     return False, hasSNP, maxfrac, outreads, mutreads, mutmates # todo: convert to class

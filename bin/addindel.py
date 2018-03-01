@@ -81,12 +81,13 @@ def makemut(args, chrom, start, end, vaf, ins, avoid, alignopts):
         mutid += ':DEL'
     else:
         mutid += ':INS:' + ins
-
+    
     try:
         bamfile = pysam.Samfile(args.bamFileName, 'rb')
         bammate = pysam.Samfile(args.bamFileName, 'rb') # use for mates to avoid iterator problems
         reffile = pysam.Fastafile(args.refFasta)
         tmpbams = []
+        vcffile = pysam.VariantFile(args.calls, 'r') if args.calls is not None else None
 
         is_insertion = ins is not None
         is_deletion  = ins is None
@@ -113,7 +114,7 @@ def makemut(args, chrom, start, end, vaf, ins, avoid, alignopts):
         print "INFO\t" + now() + "\t" + mutid + "\tcreating tmp bam: ",tmpoutbamname #DEBUG
         outbam_muts = pysam.Samfile(tmpoutbamname, 'wb', template=bamfile)
 
-        mutfail, hasSNP, maxfrac, outreads, mutreads, mutmates = mutation.mutate(args, log, bamfile, bammate, chrom, mutpos, mutpos+del_ln+1, mutpos_list, avoid=avoid, mutid_list=[mutid], is_insertion=is_insertion, is_deletion=is_deletion, ins_seq=ins, reffile=reffile, indel_start=start, indel_end=end)
+        mutfail, hasSNP, maxfrac, outreads, mutreads, mutmates = mutation.mutate(args, log, bamfile, bammate, chrom, mutpos, mutpos+del_ln+1, mutpos_list, avoid=avoid, mutid_list=[mutid], is_insertion=is_insertion, is_deletion=is_deletion, ins_seq=ins, reffile=reffile, indel_start=start, indel_end=end, vcffile=vcffile)
 
         if mutfail:
             outbam_muts.close()
@@ -426,6 +427,7 @@ def run():
     parser.add_argument('--ignorepileup', action='store_true', default=False, help="do not check pileup depth in mutation regions")
     parser.add_argument('--tmpdir', default='addindel.tmp', help='temporary directory (default=addindel.tmp)')
     parser.add_argument('--seed', default=None, help='seed random number generation')
+    parser.add_argument('--calls', default=None, help='VCF file containing called variants for this sample')
     args = parser.parse_args()
     main(args)
 
