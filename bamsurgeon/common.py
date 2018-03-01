@@ -85,32 +85,39 @@ def mergebams(bamlist, outbamfn, maxopen=100, debug=False):
                 os.remove(bamfile + '.bai')
 
 
-def bamtofastq(bam, picardjar, threads=1, paired=True, twofastq=False):
+def bamtofastq(bam, tmpdir, threads=1, paired=True, twofastq=False):
     ''' if twofastq is True output two fastq files instead of interleaved (default) for paired-end'''
-    assert os.path.exists(picardjar)
     assert bam.endswith('.bam')
-
+    
     outfq = None
     outfq_pair = None
-
-    cmd = ['java', '-XX:ParallelGCThreads=' + str(threads), '-jar', picardjar, 'SamToFastq', 'VALIDATION_STRINGENCY=SILENT', 'INPUT=' + bam]
-    cmd.append('INCLUDE_NON_PRIMARY_ALIGNMENTS=false') # in case the default ever changes
     
+    if len(tmpdir) > 0 and tmpdir[-1] != '/':
+        tmpdir += '/'
+    collate_tmp_prefix = tmpdir + "collate"
+    collate_cmd = ['samtools', 'collate', '-@', str(threads), '-uO', bam, collate_tmp_prefix]
+    
+    fastq_cmd = ['samtools', 'fastq', '-@', str(threads)]
     if paired:
         if twofastq: # two-fastq paired end
             outfq_pair = [sub('bam$', '1.fastq', bam), sub('bam$', '2.fastq', bam)]
-            cmd.append('F=' + outfq_pair[0])
-            cmd.append('F2=' + outfq_pair[1])
+            fastq_cmd += ['-1', outfq_pair[0]]
+            fastq_cmd += ['-2', outfq_pair[1]]
         else: # interleaved paired-end
             outfq = sub('bam$', 'fastq', bam)
-            cmd.append('FASTQ=' + outfq)
-            cmd.append('INTERLEAVE=true')
+            fastq_cmd += ['-s', outfq]
     else:
         outfq = sub('bam$', 'fastq', bam)
-        cmd.append('FASTQ=' + outfq)
-
+        fastq_cmd += ['-s', outfq]
+    
+    fastq_cmd.append('-') # stdin
+    
     sys.stdout.write("INFO\t" + now() + "\tconverting BAM " + bam + " to FASTQ\n")
-    subprocess.call(cmd)
+    
+    collate = subprocess.Popen(collate_cmd, stdout=subprocess.PIPE)
+    samtools = subprocess.Popen(fastq_cmd, stdin=collate.stdout)
+    collate.stdout.close()
+    output = samtools.communicate()[0]
 
     if outfq is not None:
         assert os.path.exists(outfq) # conversion failed

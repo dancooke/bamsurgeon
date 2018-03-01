@@ -272,7 +272,7 @@ def makemut(args, hc, avoid, alignopts):
         if not hasSNP or args.force:
             outbam_muts.close()
 
-            aligners.remap_bam(args.aligner, tmpoutbamname, args.refFasta, alignopts, mutid=hapstr, paired=(not args.single), picardjar=args.picardjar)
+            aligners.remap_bam(args.aligner, tmpoutbamname, args.refFasta, alignopts, args.tmpdir, mutid=hapstr, paired=(not args.single))
 
             outbam_muts = pysam.Samfile(tmpoutbamname,'rb')
             coverwindow = 1
@@ -333,7 +333,7 @@ def main(args):
     if args.alignopts is not None:
         alignopts = dict([o.split(':') for o in args.alignopts.split(',')])
 
-    aligners.checkoptions(args.aligner, alignopts, args.picardjar)
+    aligners.checkoptions(args.aligner, alignopts)
 
     # load readlist to avoid, if specified
     avoid = None
@@ -487,7 +487,6 @@ def run():
     parser.add_argument('-d', '--coverdiff', dest='coverdiff', default=0.9, help="allow difference in input and output coverage (default=0.9)")
     parser.add_argument('-z', '--haplosize', default=0, help='haplotype size (default = 0)')
     parser.add_argument('-p', '--procs', dest='procs', default=1, help="split into multiple processes (default=1)")
-    parser.add_argument('--picardjar', default=None, help='path to picard.jar, required for most aligners')
     parser.add_argument('--mindepth', default=10, help='minimum read depth to make mutation (default = 10)')
     parser.add_argument('--maxdepth', default=2000, help='maximum read depth to make mutation (default = 2000)')
     parser.add_argument('--minmutreads', default=3, help='minimum number of mutated reads to output per site')
