@@ -376,7 +376,10 @@ def main(args):
             os.remove(bam)
         if os.path.exists(bam + '.bai'):
             os.remove(bam + '.bai')
-
+    
+    if os.listdir(args.tmpdir) == []:
+        os.rmdir(args.tmpdir)
+    
     if args.skipmerge:
         print "INFO\t" + now() + "\tskipping merge, plase merge reads from", outbam_mutsfile, "manually."
     else:
