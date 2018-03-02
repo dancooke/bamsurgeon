@@ -76,7 +76,12 @@ def compare_ref(targetbam, donorbam):
             sys.stderr.write("contig mismatch: %s\n" % ref)
             return False
     return True
-    
+
+
+def is_primary(read):
+    '''returns True if this read is the primary alignment'''
+    return not (read.is_secondary or read.is_supplementary)
+
 
 def replaceReads(targetbam, donorbam, outputbam, nameprefix=None, excludefile=None, allreads=False, keepqual=False, progress=False, keepsecondary=False, keepsupplementary=False, seed=None):
     ''' targetbam, donorbam, and outputbam are pysam.Samfile objects
@@ -119,7 +124,7 @@ def replaceReads(targetbam, donorbam, outputbam, nameprefix=None, excludefile=No
                     read.qname = nameprefix + read.qname # must set name _before_ setting quality (see pysam docs)
                     read.qual = qual
                 extqname = ','.join((read.qname,pairname))
-                if not read.is_secondary and not read.is_supplementary:
+                if is_primary(read):
                     rdict[extqname] = read
                     nr += 1
                 elif read.is_secondary and keepsecondary:
@@ -131,8 +136,8 @@ def replaceReads(targetbam, donorbam, outputbam, nameprefix=None, excludefile=No
         else:
             nullcount += 1
 
-    print 'secondary reads count:'+ str(sum([len(v) for k,v in secondary.iteritems()]))
-    print 'supplementary reads count:'+ str(sum([len(v) for k,v in supplementary.iteritems()]))
+    print 'secondary reads count: '+ str(sum([len(v) for k,v in secondary.iteritems()]))
+    print 'supplementary reads count: '+ str(sum([len(v) for k,v in supplementary.iteritems()]))
     sys.stdout.write("loaded " + str(nr) + " reads, (" + str(excount) + " excluded, " + str(nullcount) + " null or secondary or supplementary--> ignored)\n")
     excount = 0
     recount = 0 # number of replaced reads
@@ -159,34 +164,39 @@ def replaceReads(targetbam, donorbam, outputbam, nameprefix=None, excludefile=No
             extqname = ','.join((read.qname,pairname))            
             #check if this read has been processed already. If so, skip to the next read
             if used.get(extqname): continue
-            newReads = []
-            if extqname in rdict:
-                if keepqual:
-                    try:
-                        rdict[extqname].qual = read.qual
-                    except ValueError as e:
-                        sys.stdout.write("error replacing quality score for read: " + str(rdict[extqname].qname) + " : " + str(e) + "\n")
-                        sys.stdout.write("donor:  " + str(rdict[extqname]) + "\n")
-                        sys.stdout.write("target: " + str(read) + "\n")
-                        sys.exit(1)
-                newReads = [rdict[extqname]]
-                used[extqname] = True
-                recount += 1
-            if extqname in secondary and keepsecondary:
-                    newReads.extend(secondary[extqname])
+            if is_primary(read):
+                newReads = []
+                if extqname in rdict:
+                    if keepqual:
+                        try:
+                            rdict[extqname].qual = read.qual
+                        except ValueError as e:
+                            sys.stdout.write("error replacing quality score for read: " + str(rdict[extqname].qname) + " : " + str(e) + "\n")
+                            sys.stdout.write("donor:  " + str(rdict[extqname]) + "\n")
+                            sys.stdout.write("target: " + str(read) + "\n")
+                            sys.exit(1)
+                    newReads = [rdict[extqname]]
                     used[extqname] = True
-                    recount += len(secondary[extqname])
-            if extqname in supplementary and keepsupplementary:
-                    newReads.extend(supplementary[extqname])
-                    used[extqname] = True
-                    recount += len(supplementary[extqname])
-            #non of the above, then write the original read back
-            elif len(newReads) == 0:
-                newReads = [read]
-            assert(len(newReads) != 0)
-            for newRead in newReads:
-                newRead = cleanup(newRead,read,RG)
-                outputbam.write(newRead)
+                    recount += 1
+                if extqname in secondary and keepsecondary:
+                        newReads.extend(secondary[extqname])
+                        used[extqname] = True
+                        recount += len(secondary[extqname])
+                if extqname in supplementary and keepsupplementary:
+                        newReads.extend(supplementary[extqname])
+                        used[extqname] = True
+                        recount += len(supplementary[extqname])
+                #non of the above, then write the original read back
+                elif len(newReads) == 0:
+                    newReads = [read]
+                assert(len(newReads) != 0)
+                for newRead in newReads:
+                    newRead = cleanup(newRead,read,RG)
+                    outputbam.write(newRead)
+            else:
+                is_donor = extqname in rdict or extqname in secondary or extqname in supplementary
+                if not is_donor and (read.is_secondary and keepsecondary or read.is_supplementary and keepsupplementary):
+                    outputbam.write(read)
         else:
             excount += 1
     sys.stdout.write("replaced " + str(recount) + " reads (" + str(excount) + " excluded )\n")
