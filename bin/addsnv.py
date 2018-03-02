@@ -440,7 +440,7 @@ def main(args):
 
     if len(tmpbams) == 0:
         print "INFO\t" + now() + "\tno succesful mutations"
-        sys.exit()        
+        sys.exit()
 
     # merge tmp bams
     if len(tmpbams) == 1:
@@ -456,6 +456,8 @@ def main(args):
             os.remove(bam)
         if os.path.exists(bam + '.bai'):
             os.remove(bam + '.bai')
+    if os.listdir(args.tmpdir) == []:
+        os.rmdir(args.tmpdir)
 
     if args.skipmerge:
         print "INFO\t" + now() + "\tskipping merge, plase merge reads from", outbam_mutsfile, "manually."
