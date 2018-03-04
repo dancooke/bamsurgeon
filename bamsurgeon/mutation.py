@@ -3,6 +3,7 @@
 from common import *
 from collections import OrderedDict as od
 import subprocess
+import random
 
 
 def countBaseAtPos(bamfile,chrom,pos,mutid='null'):
@@ -70,42 +71,42 @@ def is_missing(allele):
     return allele[-1] is None or '*' in allele[-1]
 
 
-def make_haplotype(start, end, ref_seq, variants):
-    ref_idx = 0
+def make_haplotype(alleles, region, ref_seq):
     result = ""
-    for variant in variants:
-        variant_idx = variant.pos - start - 1
-        next_ref_idx = max(variant_idx, ref_idx)
-        result += ref_seq[ref_idx : next_ref_idx] # ref sub-sequence before variant
+    ref_idx = 0
+    for allele in alleles:
+        next_ref_idx = max(allele[0] - region[1], ref_idx)
+        result += ref_seq[ref_idx : next_ref_idx] # ref sub-sequence before allele
         ref_idx = next_ref_idx
-        alt = variant.alts[0]
-        if not is_missing(alt):
-            result += alt
-            ref_idx += len(variant.ref)
-    result += ref_seq[ref_idx:]
-    required_len = end - start
-    if len(result) >= required_len:
-        return result[:required_len]
-    else:
-        return result
+        if not is_missing(allele):
+            result += allele[-1] # allele sequence
+            ref_idx += allele[1]
+    result += ref_seq[ref_idx:] # ref sub-sequence after last allele
+    return result
 
 
 def fetch_consensus(chrom, start, end, ref, vcf, debug=False):
     ref_seq = ref.fetch(chrom, start, end)
-    if debug:
-        print "DEBUG: PAD: start:", start
-        print "DEBUG: PAD: end:", end
-        print "DEBUG: ref_seq: end:", ref_seq
     if vcf is None:
         return ref_seq
     else:
-        variants = vcf.fetch(chrom, start, end)
+        sites = [v for v in vcf.fetch(chrom, start, end)]
+        if len(sites) == 0:
+            return ref_seq
+        assert len(vcf.header.samples) <= 1
+        if len(vcf.header.samples) == 1:
+            sample = vcf.header.samples[0]
+            ploidy = len(sites[0].samples[sample].alleles)
+            hap_idx = random.randint(0, ploidy - 1)
+            alleles = [(site.pos - 1, len(site.ref), site.samples[sample].alleles[hap_idx]) for site in sites]
+        else:
+            alleles = [(site.pos - 1, len(site.ref), site.alt[0]) for site in sites]
         required_len = end - start
-        result = make_haplotype(start, end, ref_seq, variants)
-        while len(result) < required_len:
-            start, end = end, end + (required_len - len(result))
-            result += make_haplotype(start, end, ref_seq, variants)
-        return result
+        region = chrom, start, end
+        result = make_haplotype(alleles, region, ref_seq)
+        if len(result) < required_len:
+            result += fetch_consensus(chrom, end, end + (required_len - len(result)), ref, vcf, debug)
+        return result[:required_len]
 
 
 def makedel(read, chrom, start, end, ref, vcf=None, debug=False):
