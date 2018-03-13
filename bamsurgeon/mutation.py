@@ -100,7 +100,7 @@ def fetch_consensus(chrom, start, end, ref, vcf, debug=False):
             hap_idx = random.randint(0, ploidy - 1)
             alleles = [(site.pos - 1, len(site.ref), site.samples[sample].alleles[hap_idx]) for site in sites]
         else:
-            alleles = [(site.pos - 1, len(site.ref), site.alt[0]) for site in sites]
+            alleles = [(site.pos - 1, len(site.ref), site.alts[0]) for site in sites]
         required_len = end - start
         region = chrom, start, end
         result = make_haplotype(alleles, region, ref_seq)
