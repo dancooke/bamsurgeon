@@ -34,6 +34,24 @@ def countBaseAtPos(bamfile,chrom,pos,mutid='null'):
 
     return bases
 
+def get_read_pos(read, ref_pos):
+    offset = ref_pos - read.pos
+    result = 0
+    for op, op_len in read.cigartuples:
+        if offset == 0:
+            break
+        op_len = min(op_len, offset)
+        if op == 0 or op == 7 or op == 8 or op == 4:
+            # Match or Soft clip
+            offset -= op_len
+            result += op_len
+        elif op == 1:
+            result += op_len
+        elif op == 2:
+            offset -= op_len
+        else:
+            continue
+    return result
 
 def makeins(read, start, ins, debug=False):
     assert len(read.seq) > len(ins) + 2
@@ -45,7 +63,8 @@ def makeins(read, start, ins, debug=False):
         print "DEBUG: DEL: cigar:     ", read.cigarstring
 
     orig_len = len(read.seq)
-    pos_in_read = start - read.pos + read.qstart
+    pos_in_read = get_read_pos(read, start)
+    # pos_in_read = start - read.pos + read.qstart
 
 
     if pos_in_read > 0: # insertion start in read span
@@ -117,14 +136,14 @@ def makedel(read, chrom, start, end, ref, vcf=None, debug=False):
     if debug:
         print "DEBUG: DEL: read.pos:", read.pos
         print "DEBUG: DEL: start:   ", start
-        print "DEBUG: DEL: ins:     ", end
+        print "DEBUG: DEL: end:     ", end
         print "DEBUG: DEL: del_len:     ", del_len
         print "DEBUG: DEL: cigar:     ", read.cigarstring
         print "DEBUG: DEL: orig seq:     ", read.seq
     
     orig_len = len(read.seq)
-    start_in_read = start - read.pos + read.qstart
-    end_in_read = end - read.pos + read.qstart
+    start_in_read = get_read_pos(read, start)
+    end_in_read = start_in_read + del_len
     
     if debug:
         print "DEBUG: DEL: start_in_read:", start_in_read
